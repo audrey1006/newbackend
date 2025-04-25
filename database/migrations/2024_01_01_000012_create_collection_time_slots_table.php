@@ -13,29 +13,40 @@ return new class extends Migration {
     {
         Schema::create('collection_time_slots', function (Blueprint $table) {
             $table->id('time_slot_id');
-            $table->time('start_time');
-            $table->string('description');
+            $table->time('collection_time');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
 
-        // Insérer les créneaux horaires prédéfinis
+        // Insérer les heures de collecte prédéfinies
         DB::table('collection_time_slots')->insert([
             [
-                'start_time' => '08:00:00',
-                'description' => 'Matin',
+                'collection_time' => '06:00:00',
                 'created_at' => now(),
                 'updated_at' => now()
             ],
             [
-                'start_time' => '14:00:00',
-                'description' => 'Après-midi',
+                'collection_time' => '08:00:00',
                 'created_at' => now(),
                 'updated_at' => now()
             ],
             [
-                'start_time' => '20:00:00',
-                'description' => 'Soir',
+                'collection_time' => '10:00:00',
+                'created_at' => now(),
+                'updated_at' => now()
+            ],
+            [
+                'collection_time' => '14:00:00',
+                'created_at' => now(),
+                'updated_at' => now()
+            ],
+            [
+                'collection_time' => '16:00:00',
+                'created_at' => now(),
+                'updated_at' => now()
+            ],
+            [
+                'collection_time' => '18:00:00',
                 'created_at' => now(),
                 'updated_at' => now()
             ]

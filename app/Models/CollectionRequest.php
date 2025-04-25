@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CollectionRequest extends Model
 {
@@ -32,7 +34,7 @@ class CollectionRequest extends Model
     /**
      * Get the client that owns the collection request.
      */
-    public function client()
+    public function client(): BelongsTo
     {
         return $this->belongsTo(ClientProfile::class, 'client_id', 'client_id');
     }
@@ -40,7 +42,7 @@ class CollectionRequest extends Model
     /**
      * Get the waste collector assigned to the collection request.
      */
-    public function collector()
+    public function collector(): BelongsTo
     {
         return $this->belongsTo(WasteCollectorProfile::class, 'collector_id', 'collector_id');
     }
@@ -48,7 +50,7 @@ class CollectionRequest extends Model
     /**
      * Get the waste type for the collection request.
      */
-    public function wasteType()
+    public function wasteType(): BelongsTo
     {
         return $this->belongsTo(WasteType::class, 'waste_type_id', 'waste_type_id');
     }
@@ -56,7 +58,7 @@ class CollectionRequest extends Model
     /**
      * Get the district for the collection request.
      */
-    public function district()
+    public function district(): BelongsTo
     {
         return $this->belongsTo(District::class, 'district_id', 'district_id');
     }
@@ -83,5 +85,13 @@ class CollectionRequest extends Model
     public function rating()
     {
         return $this->hasOne(Rating::class, 'request_id', 'request_id');
+    }
+
+    /**
+     * Get the collection days for this request.
+     */
+    public function collectionDays(): HasMany
+    {
+        return $this->hasMany(CollectionDay::class, 'request_id', 'request_id');
     }
 }

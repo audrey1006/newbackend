@@ -78,17 +78,28 @@ class CollectionRequestController extends Controller
                 'waste_type_id' => 'required|exists:waste_types,waste_type_id',
                 'district_id' => 'required|exists:districts,district_id',
                 'collection_type' => 'required|in:ponctuelle,périodique',
-                'scheduled_date' => 'required|date|after:now',
-                'notes' => 'nullable|string',
-                // Validation pour les collections périodiques
-                'frequency' => 'required_if:collection_type,périodique|in:quotidien,hebdomadaire,bi-hebdomadaire,mensuel',
-                'day_of_week' => 'required_if:frequency,hebdomadaire,bi-hebdomadaire|nullable|integer|between:1,7',
-                'day_of_month' => 'required_if:frequency,mensuel|nullable|integer|between:1,31',
-                'end_date' => 'required_if:collection_type,périodique|nullable|date|after:scheduled_date'
+                'time_slot_id' => 'required|exists:collection_time_slots,time_slot_id',
+                'collection_dates' => 'required|array|min:1',
+                'collection_dates.*' => 'required|date|after:now',
+                'notes' => 'nullable|string'
             ]);
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            // Vérifier que les dates sont uniques
+            if (count($request->collection_dates) !== count(array_unique($request->collection_dates))) {
+                return response()->json([
+                    'message' => 'Les dates de collecte doivent être uniques'
+                ], 422);
+            }
+
+            // Si c'est une collecte ponctuelle, vérifier qu'il n'y a qu'une seule date
+            if ($request->collection_type === 'ponctuelle' && count($request->collection_dates) > 1) {
+                return response()->json([
+                    'message' => 'Une collecte ponctuelle ne peut avoir qu\'une seule date'
+                ], 422);
             }
 
             DB::beginTransaction();
@@ -100,29 +111,33 @@ class CollectionRequestController extends Controller
                     'waste_type_id' => $request->waste_type_id,
                     'district_id' => $request->district_id,
                     'collection_type' => $request->collection_type,
-                    'scheduled_date' => $request->scheduled_date,
                     'notes' => $request->notes,
                     'status' => 'en attente'
                 ]);
 
-                // Si c'est une demande périodique, créer l'entrée correspondante
-                if ($request->collection_type === 'périodique') {
-                    RecurringCollection::create([
+                // Créer les jours de collecte
+                foreach ($request->collection_dates as $date) {
+                    DB::table('collection_days')->insert([
                         'request_id' => $collectionRequest->request_id,
-                        'frequency' => $request->frequency,
-                        'day_of_week' => $request->day_of_week,
-                        'day_of_month' => $request->day_of_month,
-                        'start_date' => $request->scheduled_date,
-                        'end_date' => $request->end_date,
-                        'is_active' => true
+                        'time_slot_id' => $request->time_slot_id,
+                        'collection_date' => $date,
+                        'created_at' => now(),
+                        'updated_at' => now()
                     ]);
                 }
 
                 DB::commit();
 
+                // Charger les relations pour la réponse
+                $collectionRequest->load([
+                    'client.district',
+                    'wasteType',
+                    'collectionDays.timeSlot'
+                ]);
+
                 return response()->json([
                     'message' => 'Collection request created successfully',
-                    'data' => $collectionRequest->load(['client.district', 'wasteType', 'recurringCollection'])
+                    'data' => $collectionRequest
                 ], 201);
 
             } catch (\Exception $e) {
@@ -325,6 +340,21 @@ class CollectionRequestController extends Controller
         return response()->json([
             'message' => 'Demande de collecte annulée avec succès',
             'collection_request' => $request
+        ]);
+    }
+
+    /**
+     * Get available time slots
+     */
+    public function getTimeSlots()
+    {
+        $timeSlots = DB::table('collection_time_slots')
+            ->where('is_active', true)
+            ->orderBy('collection_time')
+            ->get();
+
+        return response()->json([
+            'time_slots' => $timeSlots
         ]);
     }
 

@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\WasteCollectorProfile;
 use App\Models\District;
+use App\Models\CollectionRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
 
 class WasteCollectorProfileController extends Controller
 {
@@ -239,5 +241,51 @@ class WasteCollectorProfileController extends Controller
             'collector_profile' => $collectorProfile->load('district.city'),
             'message' => 'Waste collector registered successfully'
         ], 201);
+    }
+
+    /**
+     * Upload and update waste collector's photo
+     */
+    public function uploadPhoto(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'photo' => 'required|image|max:2048',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user = Auth::user();
+        $collectorProfile = WasteCollectorProfile::where('user_id', $user->user_id)->firstOrFail();
+
+        // Delete old photo if exists
+        if ($collectorProfile->photo_url) {
+            $oldPath = str_replace('/storage', 'public', $collectorProfile->photo_url);
+            Storage::delete($oldPath);
+        }
+
+        // Store new photo
+        $path = $request->file('photo')->store('collectors', 'public');
+        $collectorProfile->photo_url = Storage::url($path);
+        $collectorProfile->save();
+
+        return response()->json([
+            'photo_url' => $collectorProfile->photo_url,
+            'message' => 'Photo uploaded successfully'
+        ]);
+    }
+
+    /**
+     * Get profile details for the authenticated waste collector
+     */
+    public function getProfile()
+    {
+        $user = Auth::user();
+        $collectorProfile = WasteCollectorProfile::where('user_id', $user->user_id)
+            ->with(['user', 'district.city'])
+            ->firstOrFail();
+
+        return response()->json(['collector_profile' => $collectorProfile]);
     }
 }
