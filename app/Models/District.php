@@ -16,6 +16,7 @@ class District extends Model
         'name',
     ];
 
+    public $timestamps = true;
     /**
      * Get the city that owns the district.
      */

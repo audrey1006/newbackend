@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\City;
+use App\Models\District;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -13,7 +14,7 @@ class CityController extends Controller
      */
     public function index()
     {
-        $cities = City::with('districts')->get();
+        $cities = City::all();
         return response()->json(['cities' => $cities]);
     }
 
@@ -90,11 +91,9 @@ class CityController extends Controller
     /**
      * Get all districts for a specific city.
      */
-    public function getDistricts($id)
+    public function getDistricts($cityId)
     {
-        $city = City::findOrFail($id);
-        $districts = $city->districts;
-
+        $districts = District::where('city_id', $cityId)->get();
         return response()->json(['districts' => $districts]);
     }
 }

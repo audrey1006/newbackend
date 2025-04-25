@@ -14,7 +14,7 @@ return new class extends Migration {
             $table->id('district_id');
             $table->foreignId('city_id')->constrained('cities', 'city_id');
             $table->string('name', 100);
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamps(); 
 
             // Index pour optimiser les performances
             $table->index('city_id');

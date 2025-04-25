@@ -101,6 +101,15 @@ class DistrictController extends Controller
         ]);
     }
 
+
+    public function getDistrictsByCity($cityId)
+{
+    $districts = District::where('city_id', $cityId)
+        ->select('district_id','city_id', 'name')
+        ->get();
+
+    return response()->json(['districts' => $districts]);
+}
     /**
      * Remove the specified district.
      */

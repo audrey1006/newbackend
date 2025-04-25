@@ -9,6 +9,11 @@ use App\Models\RecurringCollection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
+use App\Models\District;
+use App\Models\City;
+use App\Models\WasteType;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class CollectionRequestController extends Controller
 {
@@ -49,53 +54,93 @@ class CollectionRequestController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'client_id' => 'required|exists:client_profiles,client_id',
-            'waste_type_id' => 'required|exists:waste_types,waste_type_id',
-            'district_id' => 'required|exists:districts,district_id',
-            'collection_type' => 'required|in:ponctuelle,périodique',
-            'scheduled_date' => 'required|date|after:now',
-            'notes' => 'nullable|string',
-            // Champs pour la collecte périodique
-            'frequency' => 'required_if:collection_type,périodique|in:quotidien,hebdomadaire,bi-hebdomadaire,mensuel',
-            'end_date' => 'required_if:collection_type,périodique|date|after:scheduled_date',
-        ]);
+        try {
+            $user = auth()->user();
+            Log::info('User attempting to create collection request:', ['user_id' => $user->user_id, 'role' => $user->role]);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+            if ($user->role !== 'client') {
+                return response()->json([
+                    'message' => 'Only clients can create collection requests'
+                ], 403);
+            }
 
-        $collectionRequest = CollectionRequest::create([
-            'client_id' => $request->client_id,
-            'waste_type_id' => $request->waste_type_id,
-            'district_id' => $request->district_id,
-            'collection_type' => $request->collection_type,
-            'scheduled_date' => $request->scheduled_date,
-            'notes' => $request->notes,
-            'status' => 'en attente'
-        ]);
+            $clientProfile = ClientProfile::where('user_id', $user->user_id)->first();
+            Log::info('Client profile search result:', ['client_profile' => $clientProfile]);
 
-        // Créer une collecte périodique si nécessaire
-        if ($request->collection_type === 'périodique') {
-            RecurringCollection::create([
-                'request_id' => $collectionRequest->request_id,
-                'frequency' => $request->frequency,
-                'start_date' => $request->scheduled_date,
-                'end_date' => $request->end_date,
-                'day_of_week' => $request->day_of_week,
-                'day_of_month' => $request->day_of_month,
+            if (!$clientProfile) {
+                return response()->json([
+                    'message' => 'Client profile not found',
+                    'user_id' => $user->user_id
+                ], 404);
+            }
+
+            $validator = Validator::make($request->all(), [
+                'waste_type_id' => 'required|exists:waste_types,waste_type_id',
+                'district_id' => 'required|exists:districts,district_id',
+                'collection_type' => 'required|in:ponctuelle,périodique',
+                'scheduled_date' => 'required|date|after:now',
+                'notes' => 'nullable|string',
+                // Validation pour les collections périodiques
+                'frequency' => 'required_if:collection_type,périodique|in:quotidien,hebdomadaire,bi-hebdomadaire,mensuel',
+                'day_of_week' => 'required_if:frequency,hebdomadaire,bi-hebdomadaire|nullable|integer|between:1,7',
+                'day_of_month' => 'required_if:frequency,mensuel|nullable|integer|between:1,31',
+                'end_date' => 'required_if:collection_type,périodique|nullable|date|after:scheduled_date'
             ]);
-        }
 
-        return response()->json([
-            'collection_request' => $collectionRequest->load([
-                'client.user',
-                'wasteType',
-                'district.city',
-                'recurringCollection'
-            ]),
-            'message' => 'Collection request created successfully'
-        ], 201);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            DB::beginTransaction();
+
+            try {
+                // Créer la demande de collecte
+                $collectionRequest = CollectionRequest::create([
+                    'client_id' => $clientProfile->client_id,
+                    'waste_type_id' => $request->waste_type_id,
+                    'district_id' => $request->district_id,
+                    'collection_type' => $request->collection_type,
+                    'scheduled_date' => $request->scheduled_date,
+                    'notes' => $request->notes,
+                    'status' => 'en attente'
+                ]);
+
+                // Si c'est une demande périodique, créer l'entrée correspondante
+                if ($request->collection_type === 'périodique') {
+                    RecurringCollection::create([
+                        'request_id' => $collectionRequest->request_id,
+                        'frequency' => $request->frequency,
+                        'day_of_week' => $request->day_of_week,
+                        'day_of_month' => $request->day_of_month,
+                        'start_date' => $request->scheduled_date,
+                        'end_date' => $request->end_date,
+                        'is_active' => true
+                    ]);
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'message' => 'Collection request created successfully',
+                    'data' => $collectionRequest->load(['client.district', 'wasteType', 'recurringCollection'])
+                ], 201);
+
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Error creating collection request:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'message' => 'An error occurred',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -220,9 +265,14 @@ class CollectionRequestController extends Controller
                 'district.city',
                 'recurringCollection'
             ])
+            ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json(['collection_requests' => $requests]);
+        return response()->json([
+            'collection_requests' => $requests
+        ]);
+
+
     }
 
     /**
@@ -258,4 +308,24 @@ class CollectionRequestController extends Controller
 
         return response()->json(['collection_requests' => $requests]);
     }
+
+
+    public function cancel($id)
+    {
+        $request = CollectionRequest::findOrFail($id);
+
+        if ($request->status !== 'en attente') {
+            return response()->json([
+                'error' => 'Seules les demandes en attente peuvent être annulées'
+            ], 400);
+        }
+
+        $request->update(['status' => 'annulée']);
+
+        return response()->json([
+            'message' => 'Demande de collecte annulée avec succès',
+            'collection_request' => $request
+        ]);
+    }
+
 }

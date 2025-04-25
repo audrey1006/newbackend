@@ -14,6 +14,7 @@ class ClientProfile extends Model
     protected $fillable = [
         'user_id',
         'district_id',
+        
     ];
 
     /**
