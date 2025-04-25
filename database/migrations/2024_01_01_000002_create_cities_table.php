@@ -15,6 +15,7 @@ return new class extends Migration {
             $table->id('city_id');
             $table->string('name', 100)->unique();
             $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
         });
 
         // Insertion des 10 grandes villes du Cameroun

@@ -14,6 +14,11 @@ use App\Http\Controllers\WasteCollectorProfileController;
 // Routes publiques
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/waste-collector/register', [WasteCollectorProfileController::class, 'register']);
+
+// Routes publiques pour l'inscription
+Route::get('/cities', [CityController::class, 'index']);
+Route::get('/cities/{city_id}/districts', [DistrictController::class, 'getDistrictsByCity']);
 
 // Routes protégées
 Route::middleware('auth:sanctum')->group(function () {
@@ -21,15 +26,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Gestion des villes et districts
-    Route::get('/cities', [CityController::class, 'index']);
-    Route::get('/cities/{city_id}/districts', [DistrictController::class, 'getDistrictsByCity']);
-
     // Types de déchets
     Route::get('/waste-types', [WasteTypeController::class, 'index']);
 
     // Créneaux horaires
     Route::get('/time-slots', [CollectionRequestController::class, 'getTimeSlots']);
+
+    // Espace Éboueur
+    Route::prefix('waste-collector')->group(function () {
+        Route::get('/profile', [WasteCollectorProfileController::class, 'getProfile']);
+        Route::get('/collection-requests/{id}', [WasteCollectorProfileController::class, 'getCollectionRequests']);
+        Route::put('/availability/{id}', [WasteCollectorProfileController::class, 'updateAvailability']);
+        Route::post('/upload-photo', [WasteCollectorProfileController::class, 'uploadPhoto']);
+    });
 
     // Demandes de collecte
     Route::prefix('collection-requests')->group(function () {

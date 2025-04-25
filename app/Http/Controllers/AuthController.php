@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\ClientProfile;
+use App\Models\WasteCollectorProfile;
 use App\Models\District;
 use App\Models\city;
 use Illuminate\Http\Request;
@@ -70,34 +71,25 @@ class AuthController extends Controller
         try {
             Log::info('Registration attempt with data:', $request->all());
 
-            // Validate request data
-            $validated = $request->validate([
+            // Validation de base pour tous les utilisateurs
+            $baseValidation = [
                 'email' => 'required|email|unique:users,email',
                 'password' => 'required|min:8',
                 'first_name' => 'required|string',
                 'last_name' => 'required|string',
                 'phone_number' => 'required|string',
                 'address' => 'required|string',
-                'city_id' => 'required|exists:cities,city_id',
-                'district_id' => [
-                    'required',
-                    'exists:districts,district_id',
-                    function ($attribute, $value, $fail) use ($request) {
-                        // Vérifier que le district appartient bien à la ville sélectionnée
-                        $district = District::find($value);
-                        if (!$district || $district->city_id != $request->city_id) {
-                            $fail('Le district sélectionné n\'appartient pas à la ville choisie.');
-                        }
-                    },
-                ],
-                'role' => 'required|in:admin,client,eboueur'
-            ]);
+                'district_id' => 'required|exists:districts,district_id',
+                'role' => 'required|in:client,eboueur'
+            ];
+
+            $validated = $request->validate($baseValidation);
 
             DB::beginTransaction();
 
             try {
-                // Create user
-                $userData = [
+                // Création de l'utilisateur
+                $user = User::create([
                     'email' => $validated['email'],
                     'password' => Hash::make($validated['password']),
                     'first_name' => $validated['first_name'],
@@ -105,31 +97,22 @@ class AuthController extends Controller
                     'phone_number' => $validated['phone_number'],
                     'address' => $validated['address'],
                     'role' => $validated['role']
-                ];
+                ]);
 
-                Log::info('Attempting to create user with data:', $userData);
-
-                $user = User::create($userData);
-
-                // Ensure user was created and has an ID
-                if (!$user || !$user->user_id) {
-                    Log::error('Failed to create user. User object:', ['user' => $user]);
-                    throw new \Exception('Failed to create user - no user_id generated');
-                }
-
-                // Create client profile if role is client
+                // Création du profil selon le rôle
                 if ($validated['role'] === 'client') {
-                    Log::info('Creating client profile for user:', ['user_id' => $user->user_id]);
-
-                    $clientProfile = ClientProfile::create([
+                    $profile = ClientProfile::create([
                         'user_id' => $user->user_id,
                         'district_id' => $validated['district_id']
                     ]);
-
-                    if (!$clientProfile) {
-                        Log::error('Failed to create client profile');
-                        throw new \Exception('Failed to create client profile');
-                    }
+                    $user->load('clientProfile.district.city');
+                } else if ($validated['role'] === 'eboueur') {
+                    $profile = WasteCollectorProfile::create([
+                        'user_id' => $user->user_id,
+                        'district_id' => $validated['district_id'],
+                        'is_available' => true
+                    ]);
+                    $user->load('wasteCollectorProfile.district.city');
                 }
 
                 DB::commit();
@@ -138,16 +121,12 @@ class AuthController extends Controller
 
                 return response()->json([
                     'message' => 'Registration successful',
-                    'user' => $user->load('clientProfile.district.city'),
+                    'user' => $user,
                     'token' => $token
                 ], 201);
 
             } catch (\Exception $e) {
                 DB::rollBack();
-                Log::error('Error during user creation:', [
-                    'message' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
                 throw $e;
             }
 
@@ -178,23 +157,13 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        $data = [
-            'id' => $user->user_id,
-            'email' => $user->email,
-            'first_name' => $user->first_name,
-            'last_name' => $user->last_name,
-            'phone_number' => $user->phone_number,
-            'address' => $user->address,
-            'role' => $user->role
-        ];
-
         // Charger le profil approprié selon le rôle
         if ($user->role === 'client') {
-            $data['profile'] = $user->clientProfile()->with('district.city')->first();
+            $user->load('clientProfile.district.city');
         } elseif ($user->role === 'eboueur') {
-            $data['profile'] = $user->wasteCollectorProfile()->with('district.city')->first();
+            $user->load('wasteCollectorProfile.district.city');
         }
 
-        return response()->json($data);
+        return response()->json($user);
     }
 }

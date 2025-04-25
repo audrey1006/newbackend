@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class WasteCollectorProfileController extends Controller
 {
@@ -77,7 +79,13 @@ class WasteCollectorProfileController extends Controller
      */
     public function update(Request $request, $id)
     {
+        $user = Auth::user();
         $collectorProfile = WasteCollectorProfile::findOrFail($id);
+
+        // Vérifier que l'utilisateur modifie ses propres données
+        if ($user->role === 'eboueur' && $collectorProfile->user_id !== $user->user_id) {
+            return response()->json(['error' => 'Unauthorized access'], 403);
+        }
 
         $validator = Validator::make($request->all(), [
             'district_id' => 'exists:districts,district_id',
@@ -134,7 +142,14 @@ class WasteCollectorProfileController extends Controller
      */
     public function getCollectionRequests($id)
     {
+        $user = Auth::user();
         $collectorProfile = WasteCollectorProfile::findOrFail($id);
+
+        // Vérifier que l'utilisateur accède à ses propres données
+        if ($user->role === 'eboueur' && $collectorProfile->user_id !== $user->user_id) {
+            return response()->json(['error' => 'Unauthorized access'], 403);
+        }
+
         $collectionRequests = $collectorProfile->collectionRequests()
             ->with(['client.user', 'wasteType', 'district.city', 'recurringCollection'])
             ->get();
@@ -147,7 +162,14 @@ class WasteCollectorProfileController extends Controller
      */
     public function getRatings($id)
     {
+        $user = Auth::user();
         $collectorProfile = WasteCollectorProfile::findOrFail($id);
+
+        // Vérifier que l'utilisateur accède à ses propres données
+        if ($user->role === 'eboueur' && $collectorProfile->user_id !== $user->user_id) {
+            return response()->json(['error' => 'Unauthorized access'], 403);
+        }
+
         $ratings = $collectorProfile->ratings()->with(['client.user', 'collectionRequest'])->get();
 
         return response()->json(['ratings' => $ratings]);
@@ -158,7 +180,13 @@ class WasteCollectorProfileController extends Controller
      */
     public function updateAvailability(Request $request, $id)
     {
+        $user = Auth::user();
         $collectorProfile = WasteCollectorProfile::findOrFail($id);
+
+        // Vérifier que l'utilisateur modifie ses propres données
+        if ($user->role === 'eboueur' && $collectorProfile->user_id !== $user->user_id) {
+            return response()->json(['error' => 'Unauthorized access'], 403);
+        }
 
         $validator = Validator::make($request->all(), [
             'is_available' => 'required|boolean',
@@ -168,13 +196,38 @@ class WasteCollectorProfileController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $collectorProfile->is_available = $request->is_available;
-        $collectorProfile->save();
+        try {
+            DB::beginTransaction();
 
-        return response()->json([
-            'is_available' => $collectorProfile->is_available,
-            'message' => 'Availability status updated successfully'
-        ]);
+            $collectorProfile->is_available = $request->is_available;
+            $collectorProfile->save();
+
+            // Si l'éboueur devient indisponible, annuler ses collectes en attente
+            if (!$request->is_available) {
+                $collectorProfile->collectionRequests()
+                    ->where('status', 'en attente')
+                    ->update(['status' => 'annulée']);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'is_available' => $collectorProfile->is_available,
+                'message' => 'Availability status updated successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error updating availability:', [
+                'user_id' => $user->user_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to update availability',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -249,7 +302,7 @@ class WasteCollectorProfileController extends Controller
     public function uploadPhoto(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'photo' => 'required|image|max:2048',
+            'photo' => 'required|image|max:2048|mimes:jpeg,png,jpg',
         ]);
 
         if ($validator->fails()) {
@@ -257,23 +310,52 @@ class WasteCollectorProfileController extends Controller
         }
 
         $user = Auth::user();
-        $collectorProfile = WasteCollectorProfile::where('user_id', $user->user_id)->firstOrFail();
 
-        // Delete old photo if exists
-        if ($collectorProfile->photo_url) {
-            $oldPath = str_replace('/storage', 'public', $collectorProfile->photo_url);
-            Storage::delete($oldPath);
+        // Vérifier que l'utilisateur est un éboueur
+        if ($user->role !== 'eboueur') {
+            return response()->json(['error' => 'Unauthorized. Only waste collectors can upload photos.'], 403);
         }
 
-        // Store new photo
-        $path = $request->file('photo')->store('collectors', 'public');
-        $collectorProfile->photo_url = Storage::url($path);
-        $collectorProfile->save();
+        $collectorProfile = WasteCollectorProfile::where('user_id', $user->user_id)->firstOrFail();
 
-        return response()->json([
-            'photo_url' => $collectorProfile->photo_url,
-            'message' => 'Photo uploaded successfully'
-        ]);
+        try {
+            DB::beginTransaction();
+
+            // Delete old photo if exists
+            if ($collectorProfile->photo_url) {
+                $oldPath = str_replace('/storage', 'public', $collectorProfile->photo_url);
+                if (Storage::exists($oldPath)) {
+                    Storage::delete($oldPath);
+                }
+            }
+
+            // Store new photo with unique name
+            $fileName = 'collector_' . $user->user_id . '_' . time() . '.' . $request->file('photo')->extension();
+            $path = $request->file('photo')->storeAs('collectors', $fileName, 'public');
+
+            // Update profile with new photo URL
+            $collectorProfile->photo_url = Storage::url($path);
+            $collectorProfile->save();
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Photo uploaded successfully',
+                'photo_url' => $collectorProfile->photo_url
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error uploading photo:', [
+                'user_id' => $user->user_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to upload photo',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -282,10 +364,34 @@ class WasteCollectorProfileController extends Controller
     public function getProfile()
     {
         $user = Auth::user();
+
+        // Vérifier que l'utilisateur est un éboueur
+        if ($user->role !== 'eboueur') {
+            return response()->json(['error' => 'Unauthorized. This endpoint is for waste collectors only.'], 403);
+        }
+
         $collectorProfile = WasteCollectorProfile::where('user_id', $user->user_id)
-            ->with(['user', 'district.city'])
+            ->with([
+                'user',
+                'district.city',
+                'collectionRequests' => function ($query) {
+                    $query->whereIn('status', ['en attente', 'acceptée'])
+                        ->with(['client.user', 'wasteType', 'district.city']);
+                }
+            ])
             ->firstOrFail();
 
-        return response()->json(['collector_profile' => $collectorProfile]);
+        // Ajouter les statistiques
+        $stats = [
+            'total_collections' => $collectorProfile->collectionRequests()->count(),
+            'completed_collections' => $collectorProfile->collectionRequests()->where('status', 'terminée')->count(),
+            'pending_collections' => $collectorProfile->collectionRequests()->where('status', 'en attente')->count(),
+            'average_rating' => $collectorProfile->rating
+        ];
+
+        return response()->json([
+            'profile' => $collectorProfile,
+            'stats' => $stats
+        ]);
     }
 }
