@@ -32,6 +32,31 @@ class CollectionRequest extends Model
     ];
 
     /**
+     * Scope a query to only include pending requests.
+     */
+    public function scopePending($query)
+    {
+        return $query->where('status', 'en attente')
+            ->whereNull('collector_id');
+    }
+
+    /**
+     * Scope a query to only include accepted requests.
+     */
+    public function scopeAccepted($query)
+    {
+        return $query->where('status', 'acceptée');
+    }
+
+    /**
+     * Scope a query to only include completed requests.
+     */
+    public function scopeCompleted($query)
+    {
+        return $query->where('status', 'effectuée');
+    }
+
+    /**
      * Get the client that owns the collection request.
      */
     public function client(): BelongsTo

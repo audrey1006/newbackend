@@ -214,39 +214,64 @@ class CollectionRequestController extends Controller
      */
     public function updateStatus(Request $request, $id)
     {
-        $collectionRequest = CollectionRequest::findOrFail($id);
+        try {
+            $collectionRequest = CollectionRequest::findOrFail($id);
+            $user = auth()->user();
 
-        $validator = Validator::make($request->all(), [
-            'status' => 'required|in:en attente,acceptée,en cours,effectuée,annulée',
-            'collector_id' => 'required_if:status,acceptée|exists:waste_collector_profiles,collector_id',
-        ]);
+            $validator = Validator::make($request->all(), [
+                'status' => 'required|in:en attente,acceptée,en cours,effectuée,annulée',
+                'collector_id' => 'required_if:status,acceptée|exists:waste_collector_profiles,collector_id',
+            ]);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
 
-        $data = ['status' => $request->status];
+            // Vérifier que l'éboueur est bien celui qui fait la demande
+            if ($request->status === 'acceptée' && $request->collector_id != $user->wasteCollectorProfile->collector_id) {
+                return response()->json([
+                    'error' => 'Vous ne pouvez pas accepter cette demande'
+                ], 403);
+            }
 
-        if ($request->status === 'acceptée' && $request->has('collector_id')) {
-            $data['collector_id'] = $request->collector_id;
-        }
+            $data = ['status' => $request->status];
 
-        if ($request->status === 'effectuée') {
-            $data['completed_date'] = now();
-        }
+            // Assigner l'éboueur lors de l'acceptation
+            if ($request->status === 'acceptée' && $request->has('collector_id')) {
+                $data['collector_id'] = $request->collector_id;
+            }
 
-        $collectionRequest->update($data);
+            if ($request->status === 'effectuée') {
+                $data['completed_date'] = now();
+            }
 
-        return response()->json([
-            'collection_request' => $collectionRequest->fresh([
+            $collectionRequest->update($data);
+
+            // Charger toutes les relations nécessaires
+            $collectionRequest->load([
                 'client.user',
                 'collector.user',
                 'wasteType',
                 'district.city',
-                'recurringCollection'
-            ]),
-            'message' => 'Collection request status updated successfully'
-        ]);
+                'recurringCollection',
+                'collectionDays.timeSlot'
+            ]);
+
+            return response()->json([
+                'collection_request' => $collectionRequest,
+                'message' => 'Statut de la demande mis à jour avec succès'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error updating request status:', [
+                'error' => $e->getMessage(),
+                'request_id' => $id
+            ]);
+
+            return response()->json([
+                'error' => 'Erreur lors de la mise à jour du statut'
+            ], 500);
+        }
     }
 
     /**
@@ -286,8 +311,6 @@ class CollectionRequestController extends Controller
         return response()->json([
             'collection_requests' => $requests
         ]);
-
-
     }
 
     /**
@@ -324,7 +347,6 @@ class CollectionRequestController extends Controller
         return response()->json(['collection_requests' => $requests]);
     }
 
-
     public function cancel($id)
     {
         $request = CollectionRequest::findOrFail($id);
@@ -358,4 +380,160 @@ class CollectionRequestController extends Controller
         ]);
     }
 
+    /**
+     * Get collection requests for a specific user by their user_id.
+     */
+    public function getUserRequests($userId)
+    {
+        // Get the client profile associated with this user
+        $clientProfile = ClientProfile::where('user_id', $userId)->first();
+
+        if (!$clientProfile) {
+            return response()->json([
+                'message' => 'Client profile not found for this user'
+            ], 404);
+        }
+
+        $requests = CollectionRequest::where('client_id', $clientProfile->client_id)
+            ->with([
+                'collector.user',
+                'wasteType',
+                'district.city',
+                'collectionDays.timeSlot',
+                'recurringCollection'
+            ])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'collection_requests' => $requests
+        ]);
+    }
+
+    /**
+     * Get collection requests for a specific city.
+     */
+    public function getCityRequests($cityId)
+    {
+        try {
+            // Récupérer les districts de la ville
+            $districts = District::where('city_id', $cityId)->pluck('district_id');
+
+            // Récupérer les demandes de collecte pour ces districts
+            $requests = CollectionRequest::whereIn('district_id', $districts)
+                ->with([
+                    'client.user',
+                    'wasteType',
+                    'district.city',
+                    'collectionDays.timeSlot'
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json($requests);
+        } catch (\Exception $e) {
+            Log::error('Error fetching city requests:', [
+                'city_id' => $cityId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Error fetching city requests',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get collection requests assigned to a specific collector.
+     */
+    public function getAssignedRequests($collectorId)
+    {
+        try {
+            $requests = CollectionRequest::where('collector_id', $collectorId)
+                ->with([
+                    'client.user',
+                    'wasteType',
+                    'district.city',
+                    'collectionDays.timeSlot'
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json($requests);
+        } catch (\Exception $e) {
+            Log::error('Error fetching assigned requests:', [
+                'collector_id' => $collectorId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Error fetching assigned requests',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get collection requests for a specific collector with specific status.
+     */
+    public function getCollectorRequestsByStatus($collectorId, $status)
+    {
+        try {
+            $requests = CollectionRequest::where('collector_id', $collectorId)
+                ->where('status', $status)
+                ->with([
+                    'client.user',
+                    'wasteType',
+                    'district.city',
+                    'collectionDays.timeSlot'
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json(['collection_requests' => $requests]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching collector requests:', [
+                'collector_id' => $collectorId,
+                'status' => $status,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'Erreur lors de la récupération des demandes'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get pending requests for a specific city.
+     */
+    public function getCityPendingRequests($cityId)
+    {
+        try {
+            $districts = District::where('city_id', $cityId)->pluck('district_id');
+
+            $requests = CollectionRequest::whereIn('district_id', $districts)
+                ->pending()
+                ->with([
+                    'client.user',
+                    'wasteType',
+                    'district.city',
+                    'collectionDays.timeSlot'
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json(['collection_requests' => $requests]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching city pending requests:', [
+                'city_id' => $cityId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'Erreur lors de la récupération des demandes en attente'
+            ], 500);
+        }
+    }
 }

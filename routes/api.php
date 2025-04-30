@@ -56,6 +56,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // Filtres spécifiques
         Route::get('/client/{clientId}', [CollectionRequestController::class, 'getClientRequests']);
         Route::get('/collector/{collectorId}', [CollectionRequestController::class, 'getCollectorRequests']);
+        Route::get('/collector/{collectorId}/status/{status}', [CollectionRequestController::class, 'getCollectorRequestsByStatus']);
         Route::get('/district/{districtId}', [CollectionRequestController::class, 'getDistrictRequests']);
+        Route::get('/city/{cityId}', [CollectionRequestController::class, 'getCityRequests']);
+        Route::get('/city/{cityId}/pending', [CollectionRequestController::class, 'getCityPendingRequests']);
+        Route::get('/assigned/{collectorId}', [CollectionRequestController::class, 'getAssignedRequests']);
     });
 });
