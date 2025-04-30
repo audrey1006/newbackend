@@ -10,6 +10,7 @@ use App\Http\Controllers\CityController;
 use App\Http\Controllers\RecurringCollectionController;
 use App\Http\Controllers\ClientProfileController;
 use App\Http\Controllers\WasteCollectorProfileController;
+use App\Http\Controllers\AdminController;
 
 // Routes publiques
 Route::post('/register', [AuthController::class, 'register']);
@@ -61,5 +62,40 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/city/{cityId}', [CollectionRequestController::class, 'getCityRequests']);
         Route::get('/city/{cityId}/pending', [CollectionRequestController::class, 'getCityPendingRequests']);
         Route::get('/assigned/{collectorId}', [CollectionRequestController::class, 'getAssignedRequests']);
+    });
+
+    // Routes administrateur
+    Route::prefix('admin')->group(function () {
+        // Dashboard et statistiques
+        Route::get('/dashboard-stats', [AdminController::class, 'getDashboardStats']);
+        Route::get('/statistiques', [AdminController::class, 'getStatistics']);
+
+        // Commandes
+        Route::get('/commandes/en-attente', [AdminController::class, 'getPendingOrders']);
+        Route::get('/commandes/en-cours', [AdminController::class, 'getInProgressOrders']);
+        Route::get('/commandes/effectuees', [AdminController::class, 'getCompletedOrders']);
+
+        // Gestion des erreurs
+        Route::get('/erreurs', [AdminController::class, 'getErrors']);
+        Route::put('/erreurs/{id}/resoudre', [AdminController::class, 'resolveError']);
+
+        // Gestion des clients
+        Route::get('/clients', [AdminController::class, 'getAllClients']);
+        Route::get('/clients/{id}', [AdminController::class, 'getClientDetails']);
+        Route::put('/clients/{id}', [AdminController::class, 'updateClient']);
+        Route::delete('/clients/{id}', [AdminController::class, 'deleteClient']);
+
+        // Gestion des éboueurs
+        Route::get('/collectors', [AdminController::class, 'getAllCollectors']);
+        Route::put('/collectors/{id}/status', [AdminController::class, 'updateCollectorStatus']);
+        Route::delete('/collectors/{id}', [AdminController::class, 'deleteCollector']);
+
+        // Gestion des utilisateurs
+        Route::get('/users', [AdminController::class, 'getAllUsers']);
+        Route::post('/users', [AdminController::class, 'createUser']);
+        Route::put('/users/{id}', [AdminController::class, 'updateUser']);
+        Route::delete('/users/{id}', [AdminController::class, 'deleteUser']);
+        Route::put('/users/{id}/role', [AdminController::class, 'changeUserRole']);
+        Route::put('/users/{id}/reset-password', [AdminController::class, 'resetUserPassword']);
     });
 });
