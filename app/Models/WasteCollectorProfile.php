@@ -16,7 +16,7 @@ class WasteCollectorProfile extends Model
     protected $fillable = [
         'user_id',
         'district_id',
-        'photo_path',
+        'photo_url',
         'is_verified',
         'availability_status'
     ];

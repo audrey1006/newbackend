@@ -11,6 +11,7 @@ use App\Http\Controllers\RecurringCollectionController;
 use App\Http\Controllers\ClientProfileController;
 use App\Http\Controllers\WasteCollectorProfileController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\PhotoController;
 
 // Routes publiques
 Route::post('/register', [AuthController::class, 'register']);
@@ -98,4 +99,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/users/{id}/role', [AdminController::class, 'changeUserRole']);
         Route::put('/users/{id}/reset-password', [AdminController::class, 'resetUserPassword']);
     });
+
+    // Upload de photo
+    Route::post('/upload-photo', [PhotoController::class, 'uploadPhoto']);
 });
