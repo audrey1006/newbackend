@@ -16,7 +16,7 @@ class PhotoController extends Controller
             // Validation
             $validator = Validator::make($request->all(), [
                 'photo' => 'required|image|mimes:jpeg,png,jpg|max:5120',
-                'user_id' => 'required|exists:users,id',
+                'user_id' => 'required|exists:users,user_id',
                 'type' => 'required|in:profile'
             ]);
 
