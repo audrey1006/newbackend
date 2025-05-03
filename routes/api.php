@@ -12,6 +12,7 @@ use App\Http\Controllers\ClientProfileController;
 use App\Http\Controllers\WasteCollectorProfileController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PhotoController;
+use App\Http\Controllers\UserController;
 
 // Routes publiques
 Route::post('/register', [AuthController::class, 'register']);
@@ -105,4 +106,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Historique des commandes du client
     Route::get('/user/{userId}/collection-requests', [CollectionRequestController::class, 'getUserRequests']);
+
+    // Modification d'un utilisateur (admin, client, eboueur)
+    Route::put('/users/{user_id}', [UserController::class, 'update']);
 });

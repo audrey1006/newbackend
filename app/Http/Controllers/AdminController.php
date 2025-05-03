@@ -90,6 +90,7 @@ class AdminController extends Controller
             $result = $collectors->map(function ($collector) {
                 return [
                     'collector_id' => $collector->collector_id,
+                    'user_id' => $collector->user->user_id ?? null,
                     'photo_path' => $collector->photo_path ?? $collector->photo_url ?? null,
                     'first_name' => $collector->user->first_name ?? '',
                     'last_name' => $collector->user->last_name ?? '',
