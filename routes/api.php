@@ -102,4 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Upload de photo
     Route::post('/upload-photo', [PhotoController::class, 'uploadPhoto']);
+
+    // Historique des commandes du client
+    Route::get('/user/{userId}/collection-requests', [CollectionRequestController::class, 'getUserRequests']);
 });

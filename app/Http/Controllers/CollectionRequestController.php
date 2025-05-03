@@ -385,7 +385,12 @@ class CollectionRequestController extends Controller
      */
     public function getUserRequests($userId)
     {
-        // Get the client profile associated with this user
+        $user = auth()->user();
+        // Vérifier que l'utilisateur connecté correspond à l'ID demandé et qu'il est client
+        if ($user->user_id != $userId || $user->role !== 'client') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $clientProfile = ClientProfile::where('user_id', $userId)->first();
 
         if (!$clientProfile) {
