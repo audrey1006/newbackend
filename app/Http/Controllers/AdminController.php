@@ -84,14 +84,23 @@ class AdminController extends Controller
     {
         try {
             $collectors = WasteCollectorProfile::with(['user', 'district.city'])
-                ->select(
-                    'waste_collector_profiles.*',
-                    DB::raw('(SELECT COUNT(*) FROM collection_requests WHERE collector_id = waste_collector_profiles.collector_id) as total_collections'),
-                    DB::raw('(SELECT COUNT(*) FROM collection_requests WHERE collector_id = waste_collector_profiles.collector_id AND status = "effectuée") as completed_collections')
-                )
                 ->get();
 
-            return response()->json($collectors);
+            // Adapter la structure pour le frontend
+            $result = $collectors->map(function ($collector) {
+                return [
+                    'collector_id' => $collector->collector_id,
+                    'photo_path' => $collector->photo_path ?? $collector->photo_url ?? null,
+                    'first_name' => $collector->user->first_name ?? '',
+                    'last_name' => $collector->user->last_name ?? '',
+                    'email' => $collector->user->email ?? '',
+                    'phone_number' => $collector->user->phone_number ?? '',
+                    'district' => $collector->district->name ?? '',
+                    'city' => $collector->district->city->name ?? '',
+                ];
+            });
+
+            return response()->json(['collectors' => $result]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Error fetching collectors'], 500);
         }
